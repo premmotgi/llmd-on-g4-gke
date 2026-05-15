@@ -29,7 +29,7 @@ You also need:
 ```bash
 # 1) Configure
 cp .env.example .env
-$EDITOR .env                  # set PROJECT_ID, REGION, HF_TOKEN, GPU_FAMILY, PROVISIONING_MODE
+$EDITOR .env                  # set PROJECT_ID, REGION, HF_TOKEN, MACHINE_TYPES, MAX_NODES_PER_POOL, PROVISIONING_MODE
 
 # 2) Provision
 bash infra/scripts/provision.sh
@@ -66,7 +66,7 @@ bash deploy/autoscaling/install-cmsa.sh
 
 ## Common issues
 
-- **`Error 403: Insufficient quota`** during nodepool creation: the GPU quota in your region is 0. Either file a quota-increase request in the Google Cloud Console (IAM & Admin → Quotas, filter by your region + `NVIDIA_RTX_PRO_6000_GPUS` / `NVIDIA_L4_GPUS`), or set `PROVISIONING_MODE=flex-start` in `.env` and re-run `provision.sh` — Dynamic Workload Scheduler doesn't need standing quota.
+- **`Error 403: Insufficient quota`** during nodepool creation: the GPU quota in your region is 0. Either file a quota-increase request in the Google Cloud Console (IAM & Admin → Quotas, filter by your region + `NVIDIA_RTX_PRO_6000_GPUS`), or set `PROVISIONING_MODE=flex-start` in `.env` and re-run `provision.sh` — Dynamic Workload Scheduler doesn't need standing quota.
 
 - **`gke-l7-rilb` GatewayClass missing**: GKE only creates this when the cluster has `--gateway-api=standard`. If `provision.sh` skipped cluster creation because one already existed without that flag, enable it manually:
   ```bash

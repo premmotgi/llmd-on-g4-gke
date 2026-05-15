@@ -90,16 +90,7 @@ bench-autoscale: ## Run only the autoscale-burst scenario on llm-d 1gpu
 
 .PHONY: estimate-cost
 estimate-cost: ## Print a rough cost estimate for the full sweep
-	@python3 -c "import json,sys; \
-	prices_g4={'g4-standard-48':5.5,'g4-standard-96':11,'g4-standard-192':22,'g4-standard-384':44}; \
-	prices_g2={'g2-standard-4':0.7,'g2-standard-12':1.1,'g2-standard-24':2.1,'g2-standard-48':5.5}; \
-	prices=prices_g4 if '$(GPU_FAMILY)'=='g4' else prices_g2; \
-	mult=0.3 if '$(PROVISIONING_MODE)'=='spot' else 1.0; \
-	per_size_hours=1.0; \
-	total=sum(p*per_size_hours*mult for p in prices.values()); \
-	print(f'Rough sweep cost ($(GPU_FAMILY), $(PROVISIONING_MODE)): \$$ {total:.2f} USD'); \
-	print('Assumes 1 hr/machine size at peak load. Real spend depends on');\
-	print('cold-start time, queue waits, and how much you iterate.')"
+	@python3 infra/scripts/estimate-cost.py
 
 # --- Teardown ---------------------------------------------------------------
 

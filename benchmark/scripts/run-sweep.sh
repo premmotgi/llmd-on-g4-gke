@@ -37,14 +37,31 @@ if ! command -v llmdbenchmark &>/dev/null; then
 fi
 
 # --- 2) Sweep parameters ----------------------------------------------------
-if [[ "${GPU_FAMILY}" == "g4" ]]; then
-  GPU_SIZES=("1gpu" "2gpu" "4gpu" "8gpu")
-else
-  GPU_SIZES=("1gpu-small" "1gpu-mid" "2gpu" "4gpu")
-fi
+# Derive the size list from MACHINE_TYPES. Each G4 machine maps to a size key
+# (1gpu / 2gpu / 4gpu / 8gpu) used by standup.sh + overlay names.
+declare -A G4_SIZE_FOR_MACHINE=(
+  ["g4-standard-48"]="1gpu"
+  ["g4-standard-96"]="2gpu"
+  ["g4-standard-192"]="4gpu"
+  ["g4-standard-384"]="8gpu"
+)
+
+GPU_SIZES=()
+IFS=',' read -ra _SELECTED <<< "${MACHINE_TYPES}"
+for MT in "${_SELECTED[@]}"; do
+  MT="${MT// /}"
+  [[ -z "${MT}" ]] && continue
+  SIZE="${G4_SIZE_FOR_MACHINE[${MT}]:-}"
+  [[ -n "${SIZE}" ]] || { echo "Unknown machine type in MACHINE_TYPES: ${MT}" >&2; exit 1; }
+  GPU_SIZES+=("${SIZE}")
+done
 
 STACKS=("plain-vllm" "llm-d")
 SCENARIOS=("low-concurrency" "mid-concurrency" "max-throughput")
+
+echo ">>> Sweeping sizes: ${GPU_SIZES[*]}"
+echo ">>> Sweeping stacks: ${STACKS[*]}"
+echo ">>> Sweeping scenarios: ${SCENARIOS[*]}"
 
 # --- 3) Per-cell run --------------------------------------------------------
 for STACK in "${STACKS[@]}"; do

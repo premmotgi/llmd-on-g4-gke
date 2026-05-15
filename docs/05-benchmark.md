@@ -109,42 +109,40 @@ You should see the HPA scale from 1 → ~4 replicas during the burst phase, then
 
 ## What "good" looks like
 
-Rough expectations for Gemma 4 E4B-it with BF16 weights:
+Rough expectations for Gemma 4 E4B-it with BF16 weights on G4 (RTX PRO 6000, 96 GB):
 
-| Stack | GPU | Concurrency | Output tok/s (aggregate) | TTFT p50 | TPOT p50 |
+| Stack | GPUs / replicas | Concurrency | Output tok/s (aggregate) | TTFT p50 | TPOT p50 |
 |---|---|---|---|---|---|
-| plain-vllm | 1× L4 | 32  | 700–900   | 200–400 ms | 25–40 ms |
-| llm-d      | 1× L4 | 32  | 700–950   | 200–400 ms | 25–40 ms |
-| plain-vllm | 4× L4 (1 replica TP=4) | 128 | 2200–2800 | 400–600 ms | 30–50 ms |
-| plain-vllm | 4× L4 (4 replicas DP=4) | 128 | 3000–3800 | 250–500 ms | 25–45 ms |
-| llm-d      | 4× L4 (4 replicas) | 128 | 3500–4500 | 200–450 ms | 25–45 ms |
-| plain-vllm | 1× RTX PRO 6000 | 128 | 3500–5000 | 200–400 ms | 20–35 ms |
-| llm-d      | 1× RTX PRO 6000 | 128 | 3500–5000 | 200–400 ms | 20–35 ms |
-| llm-d      | 8× RTX PRO 6000 (8 replicas + prefix-cache offload) | 512 | 30k–45k | 300–700 ms | 25–40 ms |
+| plain-vllm | 1× (1 replica)  | 32  | 3000–4500  | 200–400 ms | 20–35 ms |
+| llm-d      | 1× (1 replica)  | 32  | 3000–4500  | 200–400 ms | 20–35 ms |
+| plain-vllm | 2× (1 replica TP=2) | 64  | 4500–6500 | 250–450 ms | 25–40 ms |
+| plain-vllm | 2× (2 replicas DP=2) | 64 | 6000–8500 | 200–400 ms | 20–35 ms |
+| llm-d      | 2× (2 replicas) | 64  | 6500–9000 | 200–400 ms | 20–35 ms |
+| plain-vllm | 4× (4 replicas DP=4) | 128 | 12k–17k | 250–500 ms | 25–40 ms |
+| llm-d      | 4× (4 replicas) | 128 | 13k–19k | 200–450 ms | 25–40 ms |
+| llm-d      | 8× (8 replicas + prefix-cache offload) | 512 | 30k–45k | 300–700 ms | 25–40 ms |
 
 These are order-of-magnitude orienting numbers, not promises. The real numbers come out of the report. If your numbers are wildly off these, see [06-results-interpretation.md](./06-results-interpretation.md).
 
 ## Cost while running
 
-Approximate on-demand pricing in `us-central1` for the sweep:
+Approximate on-demand pricing in `us-central1`:
 
-| Machine | $/hr | Time at peak load during sweep | Cost contribution |
-|---|---|---|---|
-| g4-standard-48 (1× RTX PRO 6000) | ~$5–6 | ~30 min | ~$3 |
-| g4-standard-96 | ~$10–12 | ~30 min | ~$5 |
-| g4-standard-192 | ~$20–24 | ~30 min | ~$11 |
-| g4-standard-384 | ~$40–48 | ~30 min | ~$22 |
-| g2-standard-4 (1× L4) | ~$0.70 | ~30 min | ~$0.40 |
-| g2-standard-48 (4× L4) | ~$5–6 | ~30 min | ~$3 |
+| Machine | $/hr (on-demand, approx) | Spot multiplier |
+|---|---|---|
+| g4-standard-48 (1× RTX PRO 6000) | ~$5.50 | ×0.2–0.4 |
+| g4-standard-96 (2× RTX PRO 6000) | ~$11 | ×0.2–0.4 |
+| g4-standard-192 (4× RTX PRO 6000) | ~$22 | ×0.2–0.4 |
+| g4-standard-384 (8× RTX PRO 6000) | ~$44 | ×0.2–0.4 |
 
-Spot pricing cuts these by 60–80%. Use it for the sweep unless you specifically want preemption-free numbers.
+Per-cell run time at peak load is ~30 min, so expect cost ≈ `$/hr × 0.5 × 2 (stacks)` per machine type. With all four machine types and on-demand pricing that's roughly `$3 + $5.50 + $11 + $22 ≈ $42` for the full sweep at peak. Spot pricing cuts it to ~$10–15.
 
-Always sanity-check current pricing with:
+Get a real estimate based on your `MACHINE_TYPES` setting:
 
 ```bash
-gcloud compute machine-types describe g4-standard-48 --zone=us-central1-a \
-  --format="value(name,description)"
-# Pricing is at https://cloud.google.com/compute/all-pricing
+source .env && make estimate-cost
 ```
+
+Always sanity-check current pricing at https://cloud.google.com/compute/all-pricing — list prices drift.
 
 Next: [06-results-interpretation.md](./06-results-interpretation.md)

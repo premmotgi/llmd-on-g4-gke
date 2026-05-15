@@ -42,14 +42,41 @@ The two files in `deploy/autoscaling/` are minimal — tune these knobs:
 | `averageValue` | `10` | Higher = more queueing = more latency, fewer pods. Tune by SLA. |
 | `scaleUp.stabilizationWindowSeconds` | `30` | Faster reaction = costlier overshoot. 30s is aggressive; pick 60s for steadier patterns. |
 | `scaleDown.stabilizationWindowSeconds` | `300` | Conservative — avoid flapping. Don't go below 5 min for LLM workloads; pod cold-start is ~2 min. |
-| `maxReplicas` | `8` | Caps your blast radius. Should match the GPU quota you have available. |
+| `maxReplicas` | `8` | Caps your blast radius at the HPA layer. |
+
+## Two layers of max-nodes — set both
+
+There are *two* ceilings on how big things can scale, and the lower one wins:
+
+1. **HPA `maxReplicas`** — set in `deploy/autoscaling/hpa-*.yaml`. Caps how many pods.
+2. **Nodepool `max-nodes`** — set per pool via `MAX_NODES_PER_POOL` / `MAX_NODES_DEFAULT` in `.env`. Caps how many nodes the cluster autoscaler will provision.
+
+Example: if `maxReplicas: 8` but the 1-GPU nodepool has `max-nodes=4`, you'll cap at 4 replicas (one pod per node, since each pod claims a GPU). If `max-nodes=4` but `maxReplicas: 2`, you'll cap at 2 replicas regardless. Match these intentionally:
+
+```bash
+# In .env — generous headroom on the smaller pools, tight cap on the big one
+MAX_NODES_PER_POOL="g4-standard-48:4,g4-standard-96:2,g4-standard-192:1,g4-standard-384:1"
+```
+
+```yaml
+# In deploy/autoscaling/hpa-llm-d.yaml — matches the largest pool you might land on
+maxReplicas: 8
+```
+
+After changing nodepool maxes in `.env`, just re-run `bash infra/scripts/provision.sh` — it detects the change and runs `gcloud container node-pools update` on existing pools. If you want to bypass the script and do it directly:
+
+```bash
+gcloud container node-pools update g4-1gpu \
+  --cluster="${CLUSTER_NAME}" --region="${REGION}" \
+  --enable-autoscaling --min-nodes=0 --max-nodes=6
+```
 
 ## What the benchmark measures
 
 `benchmark/scenarios/autoscale-burst.yaml.j2` deliberately ramps load from 4 → 64 concurrent users over 30 seconds. It records:
 
 - **time_to_new_replica_ready_s** — HPA decision + pod schedule + pull image + load weights. Expect ~120s with cold cache, ~30s with weights already on the node.
-- **time_to_new_node_ready_s** — cluster autoscaler decision + node provision + nvidia driver install + node Ready. Expect ~3–5 min on G4/G2.
+- **time_to_new_node_ready_s** — cluster autoscaler decision + node provision + nvidia driver install + node Ready. Expect ~3–5 min on G4.
 - **SLA hold rate during the burst** — percentage of requests in the burst phase that stayed under your TTFT/TPOT targets. This is the metric customers care about.
 
 ## Image preloading — the single biggest cold-start win

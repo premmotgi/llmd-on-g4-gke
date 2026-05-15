@@ -3,8 +3,7 @@
 # standup.sh <stack> <size>
 #
 # stack: plain-vllm | llm-d
-# size:  1gpu | 2gpu | 4gpu | 8gpu  (g4)   OR
-#        1gpu-small | 1gpu-mid | 2gpu | 4gpu  (g2)
+# size:  1gpu | 2gpu | 4gpu | 8gpu
 # =============================================================================
 set -euo pipefail
 
@@ -16,12 +15,11 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." &>/dev/null && pwd)"
 
 # Translate size to overlay/values-suffix.
 case "${SIZE}" in
-  1gpu|1gpu-small) GPU_COUNT="1" ; OVERLAY="single-gpu" ; VALUES_SUFFIX=""        ;;
-  1gpu-mid)        GPU_COUNT="1" ; OVERLAY="single-gpu" ; VALUES_SUFFIX=""        ;;
-  2gpu)            GPU_COUNT="2" ; OVERLAY="two-gpu"    ; VALUES_SUFFIX="-2gpu"   ;;
-  4gpu)            GPU_COUNT="4" ; OVERLAY="four-gpu"   ; VALUES_SUFFIX="-4gpu"   ;;
-  8gpu)            GPU_COUNT="8" ; OVERLAY="eight-gpu"  ; VALUES_SUFFIX="-8gpu"   ;;
-  *) echo "unknown size: ${SIZE}" >&2 ; exit 1 ;;
+  1gpu) GPU_COUNT="1" ; OVERLAY="single-gpu" ; VALUES_SUFFIX=""      ;;
+  2gpu) GPU_COUNT="2" ; OVERLAY="two-gpu"    ; VALUES_SUFFIX="-2gpu" ;;
+  4gpu) GPU_COUNT="4" ; OVERLAY="four-gpu"   ; VALUES_SUFFIX="-4gpu" ;;
+  8gpu) GPU_COUNT="8" ; OVERLAY="eight-gpu"  ; VALUES_SUFFIX="-8gpu" ;;
+  *) echo "unknown size: ${SIZE} (expected: 1gpu, 2gpu, 4gpu, or 8gpu)" >&2 ; exit 1 ;;
 esac
 
 case "${STACK}" in

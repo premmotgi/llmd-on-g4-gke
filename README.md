@@ -24,33 +24,39 @@ You wrote `google/gemma-4-E4B-it`. Two models match closely:
 
 The repo defaults to **`google/gemma-4-E4B-it`**. If you actually meant 3n, change `MODEL_ID` in `.env` — every manifest reads from that one place.
 
-### 2. GPU machine types — `g4-standard-{48,24,12,6}` doesn't fully exist
+### 2. GPU machine types — pick which G4 sizes to test
 
-The `g4-standard-*` series on GCP is **NVIDIA RTX PRO 6000 (Blackwell, 96 GB)**, and the **smallest size is `g4-standard-48` with 1 GPU**. There is no `g4-standard-24`, `g4-standard-12`, or `g4-standard-6`.
-
-Two interpretations — pick one and tell me, the repo supports both:
-
-**Option A — You meant the G4 family, scaling by GPU count** (this is the default in the repo):
+The `g4-standard-*` family on GCP uses **NVIDIA RTX PRO 6000 (Blackwell, 96 GB per GPU)**. Note the sizes you listed in your brief (`g4-standard-48/24/12/6`) don't all exist — the smallest G4 is `g4-standard-48` with 1 GPU. The four G4 sizes available are:
 
 | Machine type | GPUs | GPU model | vCPU | RAM |
 |---|---|---|---|---|
-| `g4-standard-48` | 1× | RTX PRO 6000 (96 GB) | 48 | 180 GB |
-| `g4-standard-96` | 2× | RTX PRO 6000 (96 GB) | 96 | 360 GB |
+| `g4-standard-48`  | 1× | RTX PRO 6000 (96 GB) | 48  | 180 GB |
+| `g4-standard-96`  | 2× | RTX PRO 6000 (96 GB) | 96  | 360 GB |
 | `g4-standard-192` | 4× | RTX PRO 6000 (96 GB) | 192 | 720 GB |
 | `g4-standard-384` | 8× | RTX PRO 6000 (96 GB) | 384 | 1440 GB |
 
-**Option B — You meant the G2 family (L4 GPUs)** — those sizes match your numbers exactly:
+Pick whichever subset you want in `.env`:
 
-| Machine type | GPUs | GPU model | vCPU | RAM |
-|---|---|---|---|---|
-| `g2-standard-4`  | 1× | L4 (24 GB) | 4 | 16 GB |
-| `g2-standard-12` | 1× | L4 (24 GB) | 12 | 48 GB |
-| `g2-standard-24` | 2× | L4 (24 GB) | 24 | 96 GB |
-| `g2-standard-48` | 4× | L4 (24 GB) | 48 | 192 GB |
+```bash
+# Test all four — the default; ~3-5 hr full sweep
+MACHINE_TYPES="g4-standard-48,g4-standard-96,g4-standard-192,g4-standard-384"
 
-For a 4B-effective-param model like Gemma 4 E4B, **even one L4 (24 GB) is plenty for BF16 weights + a healthy KV cache**, so Option B is actually the more cost-realistic POC. The benchmark story ("max throughput per chip") is more interesting on L4 than on a 96 GB Blackwell that's mostly idle.
+# Just the small ones — faster sweep, lower cost
+MACHINE_TYPES="g4-standard-48,g4-standard-96"
 
-`infra/scripts/provision.sh` has both nodepool sets — flip `GPU_FAMILY` to `g4` or `g2` in `.env`.
+# Single machine type — quick smoke test
+MACHINE_TYPES="g4-standard-48"
+```
+
+Each entry becomes its own nodepool with `min-nodes=0` (zero idle cost). Configure max nodes per pool too:
+
+```bash
+# Format: <machine>:<max>,<machine>:<max>,...
+MAX_NODES_PER_POOL="g4-standard-48:4,g4-standard-96:2,g4-standard-192:1,g4-standard-384:1"
+MAX_NODES_DEFAULT="1"   # fallback for any machine in MACHINE_TYPES not listed above
+```
+
+Set max nodes based on your quota and how much HPA headroom you want. The HPAs themselves are capped by `maxReplicas` in `deploy/autoscaling/hpa-*.yaml` (default 8); a pod can't scale higher than that, and a nodepool can't scale higher than its max-nodes. Both need to be set, and the lower one wins.
 
 ### 3. Provisioning model — three modes available
 
@@ -95,7 +101,7 @@ gke-gemma-poc/
 ```bash
 # 0. Configure
 cp .env.example .env
-$EDITOR .env                       # set PROJECT_ID, REGION, HF_TOKEN, GPU_FAMILY, etc.
+$EDITOR .env                       # set PROJECT_ID, REGION, HF_TOKEN, MACHINE_TYPES, etc.
 
 # 1. Provision GKE + GPU nodepools (~10 min)
 bash infra/scripts/provision.sh
@@ -149,8 +155,8 @@ Quick orienting numbers so you know what you're aiming for. These are **rough or
 
 | GPU | BF16 weights | Free for KV | Expected single-stream tok/s | Expected concurrent tok/s |
 |---|---|---|---|---|
-| L4 24 GB        | ~8 GB | ~12 GB | 60–100   | 800–1500 |
-| RTX PRO 6000 96 GB | ~8 GB | ~80 GB | 200–350  | 4000–7000 |
+| 1× RTX PRO 6000 (96 GB) | ~8 GB | ~80 GB | 200–350  | 4000–7000 |
+| 8× RTX PRO 6000 (as 8 replicas) | 8× ~8 GB | 8× ~80 GB | n/a | 30k–45k |
 
 llm-d's value over plain vLLM shows up most at **higher concurrency** and **with repeated prefixes** (KV-cache-aware routing). On a single replica with random unique prompts, you should see plain vLLM and llm-d within a few percent of each other — that's expected and isn't a bug.
 
