@@ -101,7 +101,9 @@ gke-gemma-poc/
 ```bash
 # 0. Configure
 cp .env.example .env
-$EDITOR .env                       # set PROJECT_ID, REGION, HF_TOKEN, MACHINE_TYPES, etc.
+# Open .env in your editor (nano/vim/code/etc) and set:
+#   PROJECT_ID, REGION, HF_TOKEN, MACHINE_TYPES, MAX_NODES_PER_POOL, PROVISIONING_MODE
+nano .env                          # or: vim .env, code .env, "${EDITOR:-nano}" .env
 
 # 1. Provision GKE + GPU nodepools (~10 min)
 bash infra/scripts/provision.sh

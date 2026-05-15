@@ -11,6 +11,16 @@
 # =============================================================================
 set -euo pipefail
 
+# Bash 4+ is required for some constructs below. macOS ships with bash 3.2 at
+# /bin/bash for licensing reasons; if you're on macOS, install a modern bash
+# with `brew install bash` and re-run with: /opt/homebrew/bin/bash provision.sh
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "ERROR: bash 4 or later is required. You are running bash ${BASH_VERSION}." >&2
+  echo "       On macOS: brew install bash, then run with /opt/homebrew/bin/bash $0" >&2
+  echo "       Or on Apple Silicon: /opt/homebrew/bin/bash $0" >&2
+  exit 1
+fi
+
 # --- Load env ---------------------------------------------------------------
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." &>/dev/null && pwd)"
@@ -70,28 +80,48 @@ gcloud services enable \
 # --- 2. Build the GPU nodepool table from .env ------------------------------
 #
 # G4 family — all NVIDIA RTX PRO 6000 Blackwell (96 GB per GPU).
-# Map: machine_type -> gpu_count
+# These are the only G4 machine types currently available on GKE.
 #
-declare -A G4_GPU_COUNT=(
-  ["g4-standard-48"]=1
-  ["g4-standard-96"]=2
-  ["g4-standard-192"]=4
-  ["g4-standard-384"]=8
-)
+gpu_count_for() {
+  case "$1" in
+    g4-standard-48)  echo 1 ;;
+    g4-standard-96)  echo 2 ;;
+    g4-standard-192) echo 4 ;;
+    g4-standard-384) echo 8 ;;
+    *) return 1 ;;
+  esac
+}
+SUPPORTED_MACHINES="g4-standard-48 g4-standard-96 g4-standard-192 g4-standard-384"
 
 GPU_ACCELERATOR_TYPE="nvidia-rtx-pro-6000"
 
-# Parse MAX_NODES_PER_POOL into an associative array.
-declare -A MAX_NODES_LOOKUP
+# Parse MAX_NODES_PER_POOL into a lookup function (case-based, no assoc arrays).
+# Returns the configured max, or empty if the machine type is not in the list.
+max_nodes_for() {
+  local needle="$1"
+  local entry mt max
+  IFS=',' read -ra _entries <<< "${MAX_NODES_PER_POOL}"
+  for entry in "${_entries[@]}"; do
+    entry="${entry// /}"
+    [[ -z "${entry}" ]] && continue
+    IFS=':' read -r mt max <<< "${entry}"
+    if [[ "${mt}" == "${needle}" ]]; then
+      echo "${max}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Validate MAX_NODES_PER_POOL entries up front so we fail fast on bad input.
 if [[ -n "${MAX_NODES_PER_POOL}" ]]; then
-  IFS=',' read -ra _ENTRIES <<< "${MAX_NODES_PER_POOL}"
-  for ENTRY in "${_ENTRIES[@]}"; do
-    ENTRY="${ENTRY// /}"  # strip whitespace
-    [[ -z "${ENTRY}" ]] && continue
-    IFS=':' read -r _MT _MAX <<< "${ENTRY}"
-    [[ -n "${_MT}" && -n "${_MAX}" ]] || die "Invalid MAX_NODES_PER_POOL entry: ${ENTRY} (expected machine-type:max)"
-    [[ "${_MAX}" =~ ^[0-9]+$ ]] || die "Invalid max-nodes value in MAX_NODES_PER_POOL: ${_MAX}"
-    MAX_NODES_LOOKUP["${_MT}"]="${_MAX}"
+  IFS=',' read -ra _entries <<< "${MAX_NODES_PER_POOL}"
+  for entry in "${_entries[@]}"; do
+    entry="${entry// /}"
+    [[ -z "${entry}" ]] && continue
+    IFS=':' read -r _mt _max <<< "${entry}"
+    [[ -n "${_mt}" && -n "${_max}" ]] || die "Invalid MAX_NODES_PER_POOL entry: ${entry} (expected machine-type:max)"
+    [[ "${_max}" =~ ^[0-9]+$ ]] || die "Invalid max-nodes value in MAX_NODES_PER_POOL: ${_max}"
   done
 fi
 
@@ -104,13 +134,14 @@ for MT in "${_SELECTED[@]}"; do
   [[ -z "${MT}" ]] && continue
 
   # Validate machine type is a known G4.
-  if [[ -z "${G4_GPU_COUNT[${MT}]:-}" ]]; then
-    die "Unknown machine type: ${MT}. Supported: ${!G4_GPU_COUNT[*]}"
+  if ! GPU_COUNT="$(gpu_count_for "${MT}")"; then
+    die "Unknown machine type: ${MT}. Supported: ${SUPPORTED_MACHINES}"
   fi
-  GPU_COUNT="${G4_GPU_COUNT[${MT}]}"
 
-  # Resolve max nodes for this pool.
-  MAX="${MAX_NODES_LOOKUP[${MT}]:-${MAX_NODES_DEFAULT}}"
+  # Resolve max nodes for this pool — per-pool override, else default.
+  if ! MAX="$(max_nodes_for "${MT}")"; then
+    MAX="${MAX_NODES_DEFAULT}"
+  fi
   (( MAX >= 1 )) || die "max-nodes for ${MT} must be >= 1; got ${MAX}"
 
   # Pool name = the GPU count, e.g. "g4-1gpu", "g4-2gpu". Stable and benchmark-friendly.

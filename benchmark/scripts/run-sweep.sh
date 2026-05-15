@@ -39,20 +39,25 @@ fi
 # --- 2) Sweep parameters ----------------------------------------------------
 # Derive the size list from MACHINE_TYPES. Each G4 machine maps to a size key
 # (1gpu / 2gpu / 4gpu / 8gpu) used by standup.sh + overlay names.
-declare -A G4_SIZE_FOR_MACHINE=(
-  ["g4-standard-48"]="1gpu"
-  ["g4-standard-96"]="2gpu"
-  ["g4-standard-192"]="4gpu"
-  ["g4-standard-384"]="8gpu"
-)
+size_for_machine() {
+  case "$1" in
+    g4-standard-48)  echo "1gpu" ;;
+    g4-standard-96)  echo "2gpu" ;;
+    g4-standard-192) echo "4gpu" ;;
+    g4-standard-384) echo "8gpu" ;;
+    *) return 1 ;;
+  esac
+}
 
 GPU_SIZES=()
 IFS=',' read -ra _SELECTED <<< "${MACHINE_TYPES}"
 for MT in "${_SELECTED[@]}"; do
   MT="${MT// /}"
   [[ -z "${MT}" ]] && continue
-  SIZE="${G4_SIZE_FOR_MACHINE[${MT}]:-}"
-  [[ -n "${SIZE}" ]] || { echo "Unknown machine type in MACHINE_TYPES: ${MT}" >&2; exit 1; }
+  if ! SIZE="$(size_for_machine "${MT}")"; then
+    echo "Unknown machine type in MACHINE_TYPES: ${MT}" >&2
+    exit 1
+  fi
   GPU_SIZES+=("${SIZE}")
 done
 
