@@ -1,0 +1,46 @@
+# =============================================================================
+# max-throughput.yaml.j2 — saturate the system. Find the throughput ceiling.
+# =============================================================================
+
+scenario:
+  name: max-throughput
+  description: |
+    Pushes request rate until output_throughput stops increasing.
+    Reports the peak tok/s achieved on each machine type.
+
+workload:
+  harness: vllm-bench-serve
+  args:
+    dataset_name: sharegpt
+    dataset_path: ShareGPT_V3_unfiltered_cleaned_split.json
+    num_prompts: 2000
+
+    # Step the rate up; stop sweeping when latency p99 blows past 30s.
+    request_rates: [32, 64, 128, 256, 512]
+    max_concurrency_levels: [256, 512, 1024]
+
+    sla:
+      ttft_p99_max_ms: 5000
+      tpot_p99_max_ms: 200
+    seed: 42
+
+  prompt:
+    input_len: 1024
+    output_len: 512
+
+  prefix_sharing:
+    enabled: true
+    shared_prefix_ratio: 0.20
+    shared_prefix_len: 512
+
+reporting:
+  percentiles: [50, 90, 95, 99]
+  metrics:
+    - ttft
+    - tpot
+    - e2e_latency
+    - output_throughput
+    - request_throughput
+    - kv_cache_hit_rate
+    - gpu_utilization
+    - hpa_scale_events

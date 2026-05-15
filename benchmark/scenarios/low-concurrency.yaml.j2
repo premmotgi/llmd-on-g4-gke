@@ -1,0 +1,34 @@
+# =============================================================================
+# low-concurrency.yaml.j2 — single-stream and small-batch latency.
+# Measures TTFT / TPOT for an interactive-chat-like workload.
+# =============================================================================
+
+scenario:
+  name: low-concurrency
+  description: |
+    1-, 4-, and 16-concurrent-user streams against the endpoint.
+    Reveals best-case latency floor and small-batch efficiency.
+
+workload:
+  harness: vllm-bench-serve
+  args:
+    dataset_name: sharegpt
+    dataset_path: ShareGPT_V3_unfiltered_cleaned_split.json
+    num_prompts: 200
+    request_rates: [1, 4, 16]    # req/s
+    max_concurrency_levels: [1, 4, 16]
+    seed: 42
+
+  prompt:
+    # Realistic chat-length: ~256 input, ~256 output.
+    input_len: 256
+    output_len: 256
+
+reporting:
+  percentiles: [50, 90, 95, 99]
+  metrics:
+    - ttft
+    - tpot
+    - e2e_latency
+    - output_throughput
+    - request_throughput

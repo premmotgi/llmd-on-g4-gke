@@ -1,0 +1,52 @@
+# =============================================================================
+# autoscale-burst.yaml.j2 — ramps load 4× over 30 seconds to exercise HPA.
+# Validates that the HPA + cluster autoscaler actually scale a new replica
+# (and a new node, if needed) under load. Records time-to-second-replica-ready.
+# =============================================================================
+
+scenario:
+  name: autoscale-burst
+  description: |
+    Validates the HPA + cluster autoscaler pipeline.
+    Phase 1: 60s of low steady-state (4 concurrent users)
+    Phase 2: 30s burst at 64 concurrent users
+    Phase 3: 120s at 64 concurrent users
+    Phase 4: 60s recovery to 4
+    Records when new replicas + nodes come online, and whether the SLA was
+    held during the burst.
+
+workload:
+  harness: vllm-bench-serve
+
+  args:
+    dataset_name: sharegpt
+    dataset_path: ShareGPT_V3_unfiltered_cleaned_split.json
+    schedule:
+      - phase: warmup
+        duration_s: 60
+        concurrency: 4
+      - phase: burst
+        duration_s: 30
+        concurrency: 64
+      - phase: hold
+        duration_s: 120
+        concurrency: 64
+      - phase: cooldown
+        duration_s: 60
+        concurrency: 4
+    seed: 42
+
+  prompt:
+    input_len: 512
+    output_len: 256
+
+reporting:
+  percentiles: [50, 95, 99]
+  metrics:
+    - ttft
+    - tpot
+    - request_throughput
+    - replica_count
+    - node_count
+    - time_to_new_replica_ready_s
+    - time_to_new_node_ready_s

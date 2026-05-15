@@ -1,0 +1,44 @@
+# =============================================================================
+# mid-concurrency.yaml.j2 — 32 / 64 / 128 concurrent users.
+# This is the regime where llm-d's prefix-cache routing starts to clearly
+# beat plain vLLM on workloads with prompt overlap.
+# =============================================================================
+
+scenario:
+  name: mid-concurrency
+  description: |
+    32, 64, and 128 concurrent users. Forces vLLM's batching to be effective;
+    llm-d's prefix-cache-aware routing should shine here vs plain round-robin
+    when running multi-replica.
+
+workload:
+  harness: vllm-bench-serve
+  args:
+    dataset_name: sharegpt
+    dataset_path: ShareGPT_V3_unfiltered_cleaned_split.json
+    num_prompts: 1000
+    request_rates: [16, 32, 64]
+    max_concurrency_levels: [32, 64, 128]
+    seed: 42
+
+  prompt:
+    input_len: 512
+    output_len: 256
+
+  # Synthetic prefix-sharing: 30% of prompts share a common system-prompt
+  # prefix. This makes the difference between random routing (plain vLLM
+  # Service) and prefix-aware routing (llm-d EPP) measurable.
+  prefix_sharing:
+    enabled: true
+    shared_prefix_ratio: 0.30
+    shared_prefix_len: 256
+
+reporting:
+  percentiles: [50, 90, 95, 99]
+  metrics:
+    - ttft
+    - tpot
+    - e2e_latency
+    - output_throughput
+    - request_throughput
+    - kv_cache_hit_rate

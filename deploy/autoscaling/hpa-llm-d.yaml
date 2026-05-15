@@ -1,0 +1,46 @@
+# =============================================================================
+# HPA for llm-d-served Gemma. llm-d wraps vLLM, so vllm:num_requests_waiting
+# is still emitted by the underlying pods — we just target the modelservice
+# Deployment instead of a hand-rolled one.
+#
+# Note: this scales the *decode* pods. If you enable P/D disaggregation you'll
+# also want a second HPA for prefill — see docs/04-autoscaling.md.
+# =============================================================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gemma-decode
+  namespace: llm-d
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    # llm-d-modelservice names decode Deployments `<release>-decode`.
+    name: gemma-decode
+
+  minReplicas: 1
+  maxReplicas: 8
+
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: prometheus.googleapis.com|vllm:num_requests_waiting|gauge
+        target:
+          type: AverageValue
+          averageValue: "10"
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60

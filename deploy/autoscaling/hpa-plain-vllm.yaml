@@ -1,0 +1,50 @@
+# =============================================================================
+# HPA for plain vLLM — autoscale on the vLLM-emitted custom metric
+# `vllm:num_requests_waiting`. This is what vLLM/llm-d and GKE all recommend
+# for inference workloads, because GPU utilization is a terrible HPA signal
+# (vLLM can pin a GPU at 99% with one request OR with a hundred — same %, very
+# different latency).
+#
+# Wiring: Managed Prometheus → Custom Metrics Stackdriver Adapter (CMSA) → HPA.
+# Install CMSA once per cluster:
+#   kubectl apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/k8s-stackdriver/master/custom-metrics-stackdriver-adapter/deploy/production/adapter_new_resource_model.yaml
+# =============================================================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: vllm-gemma
+  namespace: vllm-plain
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: vllm-gemma
+
+  minReplicas: 1
+  maxReplicas: 8
+
+  metrics:
+    # Primary signal: requests sitting in the vLLM scheduler waiting queue.
+    # A small positive number = saturating. We target an average of 10 across replicas.
+    - type: Pods
+      pods:
+        metric:
+          name: prometheus.googleapis.com|vllm:num_requests_waiting|gauge
+        target:
+          type: AverageValue
+          averageValue: "10"
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30    # react fast to load surges
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 300   # be conservative scaling down
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60

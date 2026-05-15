@@ -1,0 +1,34 @@
+# Trimmed-down kube-prometheus-stack values for the POC.
+# Just enough to scrape vLLM + EPP and view the canned dashboards.
+
+prometheus:
+  prometheusSpec:
+    # Pick up the PodMonitors we install in vllm-plain and llm-d namespaces.
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    retention: 24h
+
+grafana:
+  adminPassword: "prom-operator"
+  defaultDashboardsTimezone: "browser"
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'llm-d'
+          folder: 'llm-d'
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/llm-d
+  dashboards:
+    llm-d:
+      llm-d-overview:
+        url: https://raw.githubusercontent.com/llm-d/llm-d/main/charts/llm-d/dashboards/llm-d-overview.json
+      inference-gateway:
+        url: https://raw.githubusercontent.com/kubernetes-sigs/gateway-api-inference-extension/main/config/manifests/gateway/dashboard.json
+
+# Don't need alertmanager for the POC.
+alertmanager:
+  enabled: false

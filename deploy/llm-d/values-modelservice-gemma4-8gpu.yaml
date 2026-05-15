@@ -1,0 +1,18 @@
+# 8-GPU node — 8 independent replicas (DP=8, TP=1).
+# For Gemma 4 E4B this is where you should see the biggest llm-d advantage:
+# 8 vLLM instances, all benefiting from prefix-cache-aware routing.
+parallelism:
+  tensor: 1
+  dataLocal: 1
+
+decode:
+  replicas: 8
+  nodeSelector:
+    gpu-count: "8"
+
+# At 8 replicas it's worth enabling prefix-cache offload (v0.4+) to extend
+# the cache across pods via Redis. Bumps prefix-cache hit rate meaningfully.
+# Set to true after first run if you want the comparison number.
+prefixCache:
+  offload:
+    enabled: false

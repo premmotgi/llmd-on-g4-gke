@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: vllm-plain
+
+resources:
+  - ../../base
+
+patches:
+  - target:
+      kind: Deployment
+      name: vllm-gemma
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/nvidia.com~1gpu
+        value: "8"
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          gpu-count: "8"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: TENSOR_PARALLEL_SIZE
+          value: "8"

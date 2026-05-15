@@ -1,0 +1,40 @@
+# Overlay values for the 2/4/8-GPU sweeps. Use with -f:
+#   helm upgrade gemma llm-d-modelservice/llm-d-modelservice \
+#     -n llm-d \
+#     -f values-modelservice-gemma4.yaml \
+#     -f values-modelservice-gemma4-2gpu.yaml
+#
+# Two competing strategies on multi-GPU nodes; pick one:
+#
+#   Strategy A — tensor parallelism (TP=2). One pod takes both GPUs.
+#                Lower latency, but throughput per GPU is usually worse for
+#                small models because the all-reduce overhead dominates.
+#
+#   Strategy B — data parallelism (DP=2). One pod still TP=1, but the chart
+#                creates two pods that the EPP load-balances across. This is
+#                what we recommend for Gemma 4 E4B because the model fits
+#                comfortably in one GPU and the win from prefix-cache-aware
+#                routing across pods is large.
+#
+# We default to B below — uncomment the A block if you want to A/B them.
+
+parallelism:
+  tensor: 1
+  dataLocal: 1   # per-pod; horizontal replicas scale via decode.replicas
+
+decode:
+  replicas: 2
+  nodeSelector:
+    gpu-count: "2"
+
+# Strategy A — uncomment for tensor-parallel-2:
+# parallelism:
+#   tensor: 2
+#   dataLocal: 1
+# decode:
+#   replicas: 1
+#   nodeSelector:
+#     gpu-count: "2"
+#   resources:
+#     limits:
+#       nvidia.com/gpu: 2

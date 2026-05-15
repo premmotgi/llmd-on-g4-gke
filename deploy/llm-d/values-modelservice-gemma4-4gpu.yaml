@@ -1,0 +1,9 @@
+# 4-GPU node — defaulting to 4 independent replicas (DP=4, TP=1).
+parallelism:
+  tensor: 1
+  dataLocal: 1
+
+decode:
+  replicas: 4
+  nodeSelector:
+    gpu-count: "4"

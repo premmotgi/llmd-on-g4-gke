@@ -1,0 +1,87 @@
+# =============================================================================
+# values-modelservice-gemma4.yaml — llm-d-modelservice config for Gemma 4 E4B.
+#
+# This chart materializes a model into:
+#   - vLLM Deployments (decode pods + optional prefill pods)
+#   - An InferencePool that EPP routes into
+#   - An HTTPRoute on the Gateway from /v1/* to the pool
+#
+# The chart names resources `<release>-decode`, `<release>-prefill`, etc.
+# Our `helm install gemma …` makes that `gemma-decode`, `gemma-prefill`.
+# =============================================================================
+
+model:
+  uri: "hf://google/gemma-4-E4B-it"
+  servedName: "gemma"
+
+  # Args passed to `vllm serve`. Tweak as you sweep machine types in the benchmark.
+  vllmArgs:
+    - "--max-model-len=32768"
+    - "--gpu-memory-utilization=0.90"
+    - "--dtype=bfloat16"
+    - "--enable-prefix-caching"
+
+# --- Parallelism ------------------------------------------------------------
+# For a 4B-effective-param model:
+#   - tensor=1, data=1 → 1 GPU per replica. Best $/tok on small GPUs.
+#   - tensor=2, data=1 → 2 GPUs per replica. Latency win, throughput meh.
+#   - tensor=1, data=N → N GPUs as N independent replicas. Best for throughput.
+# We default to TP=1 so each pod takes 1 GPU; HPA replicates pods horizontally.
+parallelism:
+  tensor: 1
+  dataLocal: 1
+
+# --- Decode pods (always on) ------------------------------------------------
+decode:
+  replicas: 1   # HPA owns this at runtime
+
+  # Pin to the 1-GPU nodepool by default. The benchmark swaps this.
+  nodeSelector:
+    gpu-count: "1"
+
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+
+  image:
+    # llm-d ships its own vLLM image with the routing sidecar baked in.
+    repository: ghcr.io/llm-d/llm-d
+    # Use whatever tag the v0.7 release notes pin. Avoid `latest` in prod.
+    tag: "v0.7.0"
+
+  env:
+    - name: HF_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: llm-d-hf-token
+          key: HF_TOKEN
+
+# --- Prefill pods (optional; for P/D disaggregation) -----------------------
+# Disabled by default. For a 4B model the P/D split usually isn't worth the
+# coordination cost — the cleanest comparison is plain vLLM vs llm-d's
+# intelligent routing layer, both running monolithic prefill+decode.
+# Enable for the "max throughput" run with multi-GPU nodes.
+prefill:
+  enabled: false
+  replicas: 0
+
+# --- Routing ----------------------------------------------------------------
+routing:
+  # Bind to the Gateway from values-infra.yaml.
+  parentRefs:
+    - name: llm-d-infra-gateway
+      namespace: llm-d
+
+  # llm-d's EPP requires the inference pool to exist; the chart creates it.
+  inferencePool:
+    create: true
+
+# --- Monitoring -------------------------------------------------------------
+monitoring:
+  podMonitor:
+    enabled: true

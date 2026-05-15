@@ -1,0 +1,144 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-gemma
+  namespace: vllm-plain
+  labels:
+    app: vllm-gemma
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-gemma
+  template:
+    metadata:
+      labels:
+        app: vllm-gemma
+      annotations:
+        # Scrape /metrics with managed Prometheus.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: vllm
+      # Pull these to overlay; the base sets only the bare minimum.
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      # Larger shared memory for vLLM; otherwise NCCL / paged-attention can stall.
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
+        - name: hf-cache
+          emptyDir:
+            sizeLimit: 100Gi
+        - name: hf-token
+          csi:
+            driver: secrets-store-gke.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: hf-token
+      containers:
+        - name: vllm
+          # Pin to a specific tag in production. The launch build of vLLM (0.11+)
+          # is what added day-0 support for Gemma 4. Bump as needed.
+          image: vllm/vllm-openai:v0.11.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+            - name: metrics
+              containerPort: 8000   # /metrics is on the same port
+              protocol: TCP
+          env:
+            - name: MODEL_ID
+              value: "google/gemma-4-E4B-it"
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                # The CSI driver mounts the secret as a file; we also project
+                # it as an env var via this synced Secret.
+                secretKeyRef:
+                  name: hf-token-synced
+                  key: hf-token
+            - name: HF_HOME
+              value: /hf-cache
+            - name: VLLM_LOGGING_LEVEL
+              value: "INFO"
+            # Disable usage stats — this is a benchmark cluster, no telemetry.
+            - name: VLLM_NO_USAGE_STATS
+              value: "1"
+          command: ["/bin/bash", "-lc"]
+          args:
+            - |
+              exec python -m vllm.entrypoints.openai.api_server \
+                --model "${MODEL_ID}" \
+                --served-model-name gemma \
+                --host 0.0.0.0 \
+                --port 8000 \
+                --tensor-parallel-size "${TENSOR_PARALLEL_SIZE:-1}" \
+                --max-model-len "${MAX_MODEL_LEN:-32768}" \
+                --gpu-memory-utilization "${GPU_MEM_UTIL:-0.90}" \
+                --dtype bfloat16 \
+                --enable-prefix-caching \
+                --disable-log-requests
+          resources:
+            requests:
+              cpu: "8"
+              memory: "32Gi"
+              # Overlay sets nvidia.com/gpu and matching cpu/memory.
+            limits:
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: hf-cache
+              mountPath: /hf-cache
+            - name: hf-token
+              mountPath: /etc/hf
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 60   # cold-start with a fresh model download can be slow
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 600
+            periodSeconds: 30
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 80   # up to 20 min for first pull + load
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-gemma
+  namespace: vllm-plain
+  labels:
+    app: vllm-gemma
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm-gemma
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP
+    - name: metrics
+      port: 8000
+      targetPort: 8000
+      protocol: TCP

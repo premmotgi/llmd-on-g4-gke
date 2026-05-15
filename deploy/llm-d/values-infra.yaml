@@ -1,0 +1,40 @@
+# =============================================================================
+# values-infra.yaml — values for the llm-d-infra Helm chart.
+#
+# The infra chart deploys:
+#   - The Inference Gateway (Gateway resource bound to the GKE class)
+#   - Endpoint Picker Plugin (EPP) — the smart router that does prefix-cache &
+#     load-aware routing across vLLM replicas
+#   - InferencePool CRD instances
+#   - Monitoring scaffolding (PodMonitors)
+#
+# Reference: https://llm-d.ai/docs/guide/Installation/quickstart
+# =============================================================================
+
+gateway:
+  # Use GKE's native Inference Gateway (NOT kgateway, which is being phased out
+  # per the v0.7 release notes).
+  gatewayClassName: gke-l7-rilb
+
+  # Single regional external IP for the POC. For production, you probably want
+  # an internal load balancer + Cloud Armor in front.
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+
+inferenceScheduler:
+  # Enable the v0.7 "optimized baseline" with prefix-cache-aware routing.
+  enabled: true
+
+  routing:
+    # Modes: "least-loaded" | "prefix-aware" | "predicted-latency"
+    # prefix-aware is the sweet spot for the POC — clear win over plain
+    # round-robin once your traffic has any prompt overlap.
+    mode: prefix-aware
+
+monitoring:
+  podMonitor:
+    enabled: true
+  serviceMonitor:
+    enabled: true
